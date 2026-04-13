@@ -1,35 +1,41 @@
-# Hi, this is Clicky.
-It's an AI teacher that lives as a buddy next to your cursor. It can see your screen, talk to you, and even point at stuff. Kinda like having a real teacher next to you.
+# Clicky Enhanced
 
-Download it [here](https://www.clicky.so/) for free.
-
-Here's the [original tweet](https://x.com/FarzaTV/status/2041314633978659092) that kinda blew up for a demo for more context.
+An enhanced fork of [Clicky](https://github.com/farzaa/clicky) — the AI companion that lives in your macOS menu bar. It can see your screen, talk to you, and point at things.
 
 ![Clicky — an ai buddy that lives on your mac](clicky-demo.gif)
 
-This is the open-source version of Clicky for those that want to hack on it, build their own features, or just see how it works under the hood.
+## What's New in This Fork
 
-## Get started with Claude Code
+- **Gemini 2.5 Flash** — budget-friendly AI model option (free tier, 10-50x cheaper than Claude)
+- **Claude Haiku** — lightweight Claude option for fast, cheap responses
+- **Four-model picker** — switch between Haiku, Sonnet, Opus, and Flash from the menu bar panel
+- **Cloudflare Worker /gemini route** — proxies to Google Gemini API alongside existing Claude routes
+- **macOS system TTS fallback** — Clicky always speaks, even when ElevenLabs is unavailable
+- **Specific error messages** — tells you which service failed (Gemini, Claude, or ElevenLabs)
+- **Draggable panel** — move the control panel anywhere, it remembers position between opens
+- **Cmd+Shift+C shortcut** — toggle the panel from anywhere without needing the menu bar icon
+- **Panel auto-opens on launch** — easier access without hunting for the icon
 
-The fastest way to get this running is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+## Get Started with Claude Code
 
-Once you get Claude running, paste this:
+The fastest way to set this up is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+
+Once you have Claude Code running, paste this:
 
 ```
 Hi Claude.
 
-Clone https://github.com/farzaa/clicky.git into my current directory.
+I just forked the clicky-enhanced repo. Read the CLAUDE.md and LEARNINGS.md.
 
-Then read the CLAUDE.md. I want to get Clicky running locally on my Mac.
-
-Help me set up everything — the Cloudflare Worker with my own API keys, the proxy URLs, and getting it building in Xcode. Walk me through it.
+I want to get Clicky running locally on my Mac. Help me set up everything — the
+Cloudflare Worker with my own API keys (I want to use Gemini Flash), the
+LocalConfig.swift with my proxy URL, and getting it building in Xcode. Walk me
+through it step by step.
 ```
 
-That's it. It'll clone the repo, read the docs, and walk you through the whole setup. Once you're running you can just keep talking to it — build features, fix bugs, whatever. Go crazy.
+That's it. Claude will read the docs, set up your Worker, configure the proxy URLs, and walk you through the Xcode build.
 
-## Manual setup
-
-If you want to do it yourself, here's the deal.
+## Manual Setup
 
 ### Prerequisites
 
@@ -37,116 +43,111 @@ If you want to do it yourself, here's the deal.
 - Xcode 15+
 - Node.js 18+ (for the Cloudflare Worker)
 - A [Cloudflare](https://cloudflare.com) account (free tier works)
-- API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
+- API keys for the services you want to use:
 
-### 1. Set up the Cloudflare Worker
+| Service | Required? | What It Does | Get a Key |
+|---------|-----------|-------------|-----------|
+| [Gemini](https://aistudio.google.com/apikey) | Pick at least one AI | Vision + chat (free tier) | aistudio.google.com |
+| [Anthropic](https://console.anthropic.com) | Pick at least one AI | Vision + chat (pay-as-you-go) | console.anthropic.com |
+| [AssemblyAI](https://www.assemblyai.com) | Yes | Voice transcription | assemblyai.com |
+| [ElevenLabs](https://elevenlabs.io) | Optional | Natural-sounding TTS | elevenlabs.io |
 
-The Worker is a tiny proxy that holds your API keys. The app talks to the Worker, the Worker talks to the APIs. This way your keys never ship in the app binary.
+ElevenLabs is optional — without it, Clicky falls back to the built-in macOS voice (free, works offline).
+
+### 1. Deploy the Cloudflare Worker
+
+The Worker is a proxy that holds your API keys so they never ship in the app.
 
 ```bash
 cd worker
 npm install
+npx wrangler login
 ```
 
-Now add your secrets. Wrangler will prompt you to paste each one:
+Add your API keys (each prompts you to paste):
 
 ```bash
 npx wrangler secret put ANTHROPIC_API_KEY
 npx wrangler secret put ASSEMBLYAI_API_KEY
 npx wrangler secret put ELEVENLABS_API_KEY
+npx wrangler secret put GEMINI_API_KEY
 ```
 
-For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
+Skip any you don't have — the app works with whatever services you configure.
 
-```toml
-[vars]
-ELEVENLABS_VOICE_ID = "your-voice-id-here"
-```
-
-Deploy it:
+Deploy:
 
 ```bash
 npx wrangler deploy
 ```
 
-It'll give you a URL like `https://your-worker-name.your-subdomain.workers.dev`. Copy that.
+Copy the URL it prints (e.g. `https://clicky-proxy.your-subdomain.workers.dev`).
 
-### 2. Run the Worker locally (for development)
-
-If you want to test changes to the Worker without deploying:
+### 2. Configure your Worker URL
 
 ```bash
-cd worker
-npx wrangler dev
+cp leanring-buddy/LocalConfig.example.swift leanring-buddy/LocalConfig.swift
 ```
 
-This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
+Open `leanring-buddy/LocalConfig.swift` and paste your Worker URL:
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-ASSEMBLYAI_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
+```swift
+static let workerBaseURL = "https://clicky-proxy.your-subdomain.workers.dev"
 ```
 
-Then update the proxy URLs in the Swift code to point to `http://localhost:8787` instead of the deployed Worker URL while developing. Grep for `clicky-proxy` to find them all.
+This file is gitignored — your URL stays local.
 
-### 3. Update the proxy URLs in the app
-
-The app has the Worker URL hardcoded in a few places. Search for `your-worker-name.your-subdomain.workers.dev` and replace it with your Worker URL:
-
-```bash
-grep -r "clicky-proxy" leanring-buddy/
-```
-
-You'll find it in:
-- `CompanionManager.swift` — Claude chat + ElevenLabs TTS
-- `AssemblyAIStreamingTranscriptionProvider.swift` — AssemblyAI token endpoint
-
-### 4. Open in Xcode and run
+### 3. Build and run
 
 ```bash
 open leanring-buddy.xcodeproj
 ```
 
 In Xcode:
-1. Select the `leanring-buddy` scheme (yes, the typo is intentional, long story)
-2. Set your signing team under Signing & Capabilities
-3. Hit **Cmd + R** to build and run
+1. Select the **leanring-buddy** scheme
+2. Set your signing team (any free Apple ID works) under Signing & Capabilities
+3. **Cmd+R** to build and run
 
-The app will appear in your menu bar (not the dock). Click the icon to open the panel, grant the permissions it asks for, and you're good.
+The app appears in your **menu bar** (not the dock). Click the icon to open the panel, grant permissions, select your model, and push-to-talk with **Ctrl+Option**.
 
-### Permissions the app needs
+**Important:** Don't run `xcodebuild` from the terminal — it invalidates macOS TCC permissions.
 
-- **Microphone** — for push-to-talk voice capture
-- **Accessibility** — for the global keyboard shortcut (Control + Option)
-- **Screen Recording** — for taking screenshots when you use the hotkey
-- **Screen Content** — for ScreenCaptureKit access
+### Permissions needed
+
+- **Microphone** — push-to-talk voice capture
+- **Accessibility** — global Ctrl+Option keyboard shortcut
+- **Screen Recording** — screenshots sent to the AI
 
 ## Architecture
 
-If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
+Full technical breakdown in `CLAUDE.md`. Short version:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
+Menu bar app with two transparent `NSPanel` windows — one for the control panel, one for the cursor overlay. Push-to-talk streams audio to AssemblyAI, sends transcript + screenshots to Claude or Gemini via SSE, speaks the response through ElevenLabs or macOS TTS. The AI can embed `[POINT:x,y:label:screenN]` tags to make the cursor fly to UI elements. Everything proxied through a Cloudflare Worker.
 
-## Project structure
+For a visual explainer of the full architecture, open `clicky-architecture.html` in your browser.
+
+## Project Structure
 
 ```
-leanring-buddy/          # Swift source (yes, the typo stays)
-  CompanionManager.swift    # Central state machine
-  CompanionPanelView.swift  # Menu bar panel UI
-  ClaudeAPI.swift           # Claude streaming client
-  ElevenLabsTTSClient.swift # Text-to-speech playback
-  OverlayWindow.swift       # Blue cursor overlay
-  AssemblyAI*.swift         # Real-time transcription
-  BuddyDictation*.swift     # Push-to-talk pipeline
-worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
-CLAUDE.md                # Full architecture doc (agents read this)
+leanring-buddy/                # Swift source
+  CompanionManager.swift         # Central state machine + AI dispatch
+  CompanionPanelView.swift       # Menu bar panel UI + model picker
+  ClaudeAPI.swift                # Claude streaming client
+  GeminiAPI.swift                # Gemini streaming client
+  ElevenLabsTTSClient.swift      # Text-to-speech playback
+  MenuBarPanelManager.swift      # Menu bar icon + panel lifecycle
+  OverlayWindow.swift            # Blue cursor overlay + pointing
+  AssemblyAI*.swift              # Real-time transcription
+  BuddyDictation*.swift          # Push-to-talk pipeline
+  LocalConfig.swift              # Your Worker URL (gitignored)
+  LocalConfig.example.swift      # Template for LocalConfig.swift
+worker/                        # Cloudflare Worker proxy
+  src/index.ts                   # /chat, /gemini, /tts, /transcribe-token
+CLAUDE.md                      # Full architecture doc
+LEARNINGS.md                   # Setup tips + model integration guide
+clicky-architecture.html       # Visual architecture explainer
 ```
 
-## Contributing
+## Credits
 
-PRs welcome. If you're using Claude Code, it already knows the codebase — just tell it what you want to build and point it at `CLAUDE.md`.
-
-Got feedback? DM me on X [@farzatv](https://x.com/farzatv).
+Based on [Clicky](https://github.com/farzaa/clicky) by [@farzatv](https://x.com/farzatv).
