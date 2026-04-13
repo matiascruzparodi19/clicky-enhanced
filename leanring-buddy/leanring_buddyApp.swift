@@ -44,11 +44,9 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         companionManager.start()
-        // Auto-open the panel if the user still needs to do something:
-        // either they haven't onboarded yet, or permissions were revoked.
-        if !companionManager.hasCompletedOnboarding || !companionManager.allPermissionsGranted {
-            menuBarPanelManager?.showPanelOnLaunch()
-        }
+        // Always auto-open the panel on launch so the user can access
+        // model selection and companion controls immediately.
+        menuBarPanelManager?.showPanelOnLaunch()
         registerAsLoginItemIfNeeded()
         // startSparkleUpdater()
     }

@@ -30,6 +30,7 @@ final class MenuBarPanelManager: NSObject {
     private var panel: NSPanel?
     private var clickOutsideMonitor: Any?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var panelToggleKeyMonitor: Any?
 
     private let companionManager: CompanionManager
     private let panelWidth: CGFloat = 320
@@ -39,6 +40,7 @@ final class MenuBarPanelManager: NSObject {
         self.companionManager = companionManager
         super.init()
         createStatusItem()
+        installPanelToggleKeyboardShortcut()
 
         dismissPanelObserver = NotificationCenter.default.addObserver(
             forName: .clickyDismissPanel,
@@ -56,6 +58,9 @@ final class MenuBarPanelManager: NSObject {
         if let observer = dismissPanelObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let monitor = panelToggleKeyMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     // MARK: - Status Item
@@ -63,48 +68,24 @@ final class MenuBarPanelManager: NSObject {
     private func createStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
-        guard let button = statusItem?.button else { return }
-
-        button.image = makeClickyMenuBarIcon()
-        button.image?.isTemplate = true
-        button.action = #selector(statusItemClicked)
-        button.target = self
-    }
-
-    /// Draws the clicky triangle as a menu bar icon. Uses the same shape
-    /// and rotation as the in-app cursor so the menu bar icon matches.
-    private func makeClickyMenuBarIcon() -> NSImage {
-        let iconSize: CGFloat = 18
-        let image = NSImage(size: NSSize(width: iconSize, height: iconSize))
-        image.lockFocus()
-
-        let triangleSize = iconSize * 0.7
-        let cx = iconSize * 0.50
-        let cy = iconSize * 0.50
-        let height = triangleSize * sqrt(3.0) / 2.0
-
-        let top = CGPoint(x: cx, y: cy + height / 1.5)
-        let bottomLeft = CGPoint(x: cx - triangleSize / 2, y: cy - height / 3)
-        let bottomRight = CGPoint(x: cx + triangleSize / 2, y: cy - height / 3)
-
-        let angle = 35.0 * .pi / 180.0
-        func rotate(_ point: CGPoint) -> CGPoint {
-            let dx = point.x - cx, dy = point.y - cy
-            let cosA = CGFloat(cos(angle)), sinA = CGFloat(sin(angle))
-            return CGPoint(x: cx + cosA * dx - sinA * dy, y: cy + sinA * dx + cosA * dy)
+        guard let button = statusItem?.button else {
+            print("⚠️ Clicky menu bar: failed to get status item button")
+            return
         }
 
-        let path = NSBezierPath()
-        path.move(to: rotate(top))
-        path.line(to: rotate(bottomLeft))
-        path.line(to: rotate(bottomRight))
-        path.close()
+        // Use an SF Symbol for reliable rendering across all macOS versions.
+        // The custom-drawn triangle was invisible on some systems.
+        if let sfImage = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: "Clicky") {
+            sfImage.isTemplate = true
+            button.image = sfImage
+        } else {
+            // Fallback: use the text "C" if the SF Symbol isn't available
+            button.title = "C"
+        }
 
-        NSColor.black.setFill()
-        path.fill()
-
-        image.unlockFocus()
-        return image
+        button.action = #selector(statusItemClicked)
+        button.target = self
+        print("🎯 Clicky menu bar: status item created successfully")
     }
 
     /// Opens the panel automatically on app launch so the user sees
@@ -116,12 +97,32 @@ final class MenuBarPanelManager: NSObject {
         }
     }
 
-    @objc private func statusItemClicked() {
+    /// Cmd+Shift+C toggles the panel from anywhere, so the user can access
+    /// settings even if the menu bar icon is hidden behind the notch.
+    private func installPanelToggleKeyboardShortcut() {
+        panelToggleKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            // Cmd+Shift+C — keyCode 8 is "C"
+            let requiredFlags: NSEvent.ModifierFlags = [.command, .shift]
+            let relevantFlags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if event.keyCode == 8 && relevantFlags == requiredFlags {
+                DispatchQueue.main.async {
+                    self?.togglePanel()
+                }
+            }
+        }
+        print("🎯 Clicky: Cmd+Shift+C keyboard shortcut installed for panel toggle")
+    }
+
+    private func togglePanel() {
         if let panel, panel.isVisible {
             hidePanel()
         } else {
             showPanel()
         }
+    }
+
+    @objc private func statusItemClicked() {
+        togglePanel()
     }
 
     // MARK: - Panel Lifecycle
@@ -139,6 +140,11 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func hidePanel() {
+        // Save the panel's current position so it reopens where the user left it
+        if let panelFrame = panel?.frame {
+            UserDefaults.standard.set(panelFrame.origin.x, forKey: "clickyPanelPositionX")
+            UserDefaults.standard.set(panelFrame.origin.y, forKey: "clickyPanelPositionY")
+        }
         panel?.orderOut(nil)
         removeClickOutsideMonitor()
     }
@@ -167,7 +173,7 @@ final class MenuBarPanelManager: NSObject {
         menuBarPanel.hidesOnDeactivate = false
         menuBarPanel.isExcludedFromWindowsMenu = true
         menuBarPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        menuBarPanel.isMovableByWindowBackground = false
+        menuBarPanel.isMovableByWindowBackground = true
         menuBarPanel.titleVisibility = .hidden
         menuBarPanel.titlebarAppearsTransparent = true
 
@@ -177,24 +183,45 @@ final class MenuBarPanelManager: NSObject {
 
     private func positionPanelBelowStatusItem() {
         guard let panel else { return }
-        guard let buttonWindow = statusItem?.button?.window else { return }
 
-        let statusItemFrame = buttonWindow.frame
-        let gapBelowMenuBar: CGFloat = 4
-
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
         let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
         let actualPanelHeight = fittingSize.height
 
-        // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
-        let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+        // If the user has previously dragged the panel, reopen at that saved position
+        let hasSavedPosition = UserDefaults.standard.object(forKey: "clickyPanelPositionX") != nil
+        if hasSavedPosition {
+            let savedX = UserDefaults.standard.double(forKey: "clickyPanelPositionX")
+            let savedY = UserDefaults.standard.double(forKey: "clickyPanelPositionY")
+            panel.setFrame(
+                NSRect(x: savedX, y: savedY, width: panelWidth, height: actualPanelHeight),
+                display: true
+            )
+            return
+        }
 
-        panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
-            display: true
-        )
+        // Try to position below the menu bar status item icon
+        if let buttonWindow = statusItem?.button?.window {
+            let statusItemFrame = buttonWindow.frame
+            let gapBelowMenuBar: CGFloat = 4
+            let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
+            let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
+            panel.setFrame(
+                NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
+                display: true
+            )
+            return
+        }
+
+        // Fallback: position near the top-right of the main screen
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let panelOriginX = screenFrame.maxX - panelWidth - 16
+            let panelOriginY = screenFrame.maxY - actualPanelHeight - 16
+            panel.setFrame(
+                NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
+                display: true
+            )
+        }
     }
 
     // MARK: - Click Outside Dismissal

@@ -70,10 +70,14 @@ final class CompanionManager: ObservableObject {
 
     /// Base URL for the Cloudflare Worker proxy. All API requests route
     /// through this so keys never ship in the app binary.
-    private static let workerBaseURL = "https://your-worker-name.your-subdomain.workers.dev"
+    private static let workerBaseURL = "https://clicky-proxy.clicky-proxymashe.workers.dev"
 
     private lazy var claudeAPI: ClaudeAPI = {
         return ClaudeAPI(proxyURL: "\(Self.workerBaseURL)/chat", model: selectedModel)
+    }()
+
+    private lazy var geminiAPI: GeminiAPI = {
+        return GeminiAPI(proxyURL: "\(Self.workerBaseURL)/gemini", model: selectedModel)
     }()
 
     private lazy var elevenLabsTTSClient: ElevenLabsTTSClient = {
@@ -96,6 +100,9 @@ final class CompanionManager: ObservableObject {
     /// Scheduled hide for transient cursor mode — cancelled if the user
     /// speaks again before the delay elapses.
     private var transientHideTask: Task<Void, Never>?
+    /// Tracks whether the user has already been told about ElevenLabs being
+    /// down this session, so we don't repeat the warning on every interaction.
+    private var hasAnnouncedElevenLabsError = false
 
     /// True when all three required permissions (accessibility, screen recording,
     /// microphone) are granted. Used by the panel to show a single "all good" state.
@@ -107,13 +114,23 @@ final class CompanionManager: ObservableObject {
     /// Used by the panel to show accurate status text ("Active" vs "Ready").
     @Published private(set) var isOverlayVisible: Bool = false
 
-    /// The Claude model used for voice responses. Persisted to UserDefaults.
+    /// The AI model used for voice responses. Persisted to UserDefaults.
+    /// Supports both Claude models (prefix "claude-") and Gemini models (prefix "gemini-").
     @Published var selectedModel: String = UserDefaults.standard.string(forKey: "selectedClaudeModel") ?? "claude-sonnet-4-6"
+
+    /// Whether the currently selected model is a Gemini model (vs Claude).
+    private var isGeminiModel: Bool {
+        selectedModel.hasPrefix("gemini-")
+    }
 
     func setSelectedModel(_ model: String) {
         selectedModel = model
         UserDefaults.standard.set(model, forKey: "selectedClaudeModel")
-        claudeAPI.model = model
+        if model.hasPrefix("gemini-") {
+            geminiAPI.model = model
+        } else {
+            claudeAPI.model = model
+        }
     }
 
     /// User preference for whether the Clicky cursor should be shown.
@@ -179,9 +196,13 @@ final class CompanionManager: ObservableObject {
         bindVoiceStateObservation()
         bindAudioPowerLevel()
         bindShortcutTransitions()
-        // Eagerly touch the Claude API so its TLS warmup handshake completes
+        // Eagerly touch the active API client so its TLS warmup handshake completes
         // well before the onboarding demo fires at ~40s into the video.
-        _ = claudeAPI
+        if isGeminiModel {
+            _ = geminiAPI
+        } else {
+            _ = claudeAPI
+        }
 
         // If the user already completed onboarding AND all permissions are
         // still granted, show the cursor overlay immediately. If permissions
@@ -598,27 +619,36 @@ final class CompanionManager: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 // Build image labels with the actual screenshot pixel dimensions
-                // so Claude's coordinate space matches the image it sees. We
+                // so the AI's coordinate space matches the image it sees. We
                 // scale from screenshot pixels to display points ourselves.
                 let labeledImages = screenCaptures.map { capture in
                     let dimensionInfo = " (image dimensions: \(capture.screenshotWidthInPixels)x\(capture.screenshotHeightInPixels) pixels)"
                     return (data: capture.imageData, label: capture.label + dimensionInfo)
                 }
 
-                // Pass conversation history so Claude remembers prior exchanges
+                // Pass conversation history so the AI remembers prior exchanges
                 let historyForAPI = conversationHistory.map { entry in
                     (userPlaceholder: entry.userTranscript, assistantResponse: entry.assistantResponse)
                 }
 
-                let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: Self.companionVoiceResponseSystemPrompt,
-                    conversationHistory: historyForAPI,
-                    userPrompt: transcript,
-                    onTextChunk: { _ in
-                        // No streaming text display — spinner stays until TTS plays
-                    }
-                )
+                let fullResponseText: String
+                if isGeminiModel {
+                    (fullResponseText, _) = try await geminiAPI.analyzeImageStreaming(
+                        images: labeledImages,
+                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        conversationHistory: historyForAPI,
+                        userPrompt: transcript,
+                        onTextChunk: { _ in }
+                    )
+                } else {
+                    (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
+                        images: labeledImages,
+                        systemPrompt: Self.companionVoiceResponseSystemPrompt,
+                        conversationHistory: historyForAPI,
+                        userPrompt: transcript,
+                        onTextChunk: { _ in }
+                    )
+                }
 
                 guard !Task.isCancelled else { return }
 
@@ -707,7 +737,12 @@ final class CompanionManager: ObservableObject {
                     } catch {
                         ClickyAnalytics.trackTTSError(error: error.localizedDescription)
                         print("⚠️ ElevenLabs TTS error: \(error)")
-                        speakCreditsErrorFallback()
+                        if !hasAnnouncedElevenLabsError {
+                            hasAnnouncedElevenLabsError = true
+                            speakTextWithSystemTTS("Switching to system voice. \(spokenText)")
+                        } else {
+                            speakTextWithSystemTTS(spokenText)
+                        }
                     }
                 }
             } catch is CancellationError {
@@ -715,7 +750,8 @@ final class CompanionManager: ObservableObject {
             } catch {
                 ClickyAnalytics.trackResponseError(error: error.localizedDescription)
                 print("⚠️ Companion response error: \(error)")
-                speakCreditsErrorFallback()
+                let modelDisplayName = isGeminiModel ? "Gemini" : "Claude"
+                speakTextWithSystemTTS("\(modelDisplayName) ran into an error. Check your API key or credits for \(modelDisplayName).")
             }
 
             if !Task.isCancelled {
@@ -755,13 +791,11 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    /// Speaks a hardcoded error message using macOS system TTS when API
-    /// credits run out. Uses NSSpeechSynthesizer so it works even when
-    /// ElevenLabs is down.
-    private func speakCreditsErrorFallback() {
-        let utterance = "I'm all out of credits. Please DM Farza and tell him to bring me back to life."
+    /// Speaks arbitrary text using macOS built-in TTS as a fallback when
+    /// ElevenLabs is unavailable. Free, works offline, no API key needed.
+    private func speakTextWithSystemTTS(_ text: String) {
         let synthesizer = NSSpeechSynthesizer()
-        synthesizer.startSpeaking(utterance)
+        synthesizer.startSpeaking(text)
         voiceState = .responding
     }
 
@@ -982,12 +1016,22 @@ final class CompanionManager: ObservableObject {
                 let dimensionInfo = " (image dimensions: \(cursorScreenCapture.screenshotWidthInPixels)x\(cursorScreenCapture.screenshotHeightInPixels) pixels)"
                 let labeledImages = [(data: cursorScreenCapture.imageData, label: cursorScreenCapture.label + dimensionInfo)]
 
-                let (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
-                    images: labeledImages,
-                    systemPrompt: Self.onboardingDemoSystemPrompt,
-                    userPrompt: "look around my screen and find something interesting to point at",
-                    onTextChunk: { _ in }
-                )
+                let fullResponseText: String
+                if isGeminiModel {
+                    (fullResponseText, _) = try await geminiAPI.analyzeImageStreaming(
+                        images: labeledImages,
+                        systemPrompt: Self.onboardingDemoSystemPrompt,
+                        userPrompt: "look around my screen and find something interesting to point at",
+                        onTextChunk: { _ in }
+                    )
+                } else {
+                    (fullResponseText, _) = try await claudeAPI.analyzeImageStreaming(
+                        images: labeledImages,
+                        systemPrompt: Self.onboardingDemoSystemPrompt,
+                        userPrompt: "look around my screen and find something interesting to point at",
+                        onTextChunk: { _ in }
+                    )
+                }
 
                 let parseResult = Self.parsePointingCoordinates(from: fullResponseText)
 

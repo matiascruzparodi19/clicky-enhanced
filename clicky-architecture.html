@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clicky — Architecture & How It Works</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e8;
+            line-height: 1.6;
+        }
+
+        /* ── Hero ── */
+        .hero {
+            text-align: center;
+            padding: 80px 24px 60px;
+            background: linear-gradient(180deg, #111128 0%, #0a0a0f 100%);
+            border-bottom: 1px solid #1a1a2e;
+        }
+        .hero h1 {
+            font-size: 3.2rem;
+            font-weight: 700;
+            letter-spacing: -1px;
+            background: linear-gradient(135deg, #6ea8fe, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero p {
+            font-size: 1.15rem;
+            color: #8888a0;
+            max-width: 640px;
+            margin: 16px auto 0;
+        }
+
+        /* ── Section scaffolding ── */
+        section {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 64px 24px;
+        }
+        section + section { border-top: 1px solid #1a1a2e; }
+
+        h2 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 32px;
+            color: #c0c0d8;
+            letter-spacing: -0.5px;
+        }
+        h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #a0a0c0;
+            margin-bottom: 8px;
+        }
+
+        /* ── Flow diagram ── */
+        .flow {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 0;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .flow-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            width: 150px;
+        }
+        .flow-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.7rem;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .flow-step span {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #c0c0d8;
+        }
+        .flow-step small {
+            font-size: 0.72rem;
+            color: #666680;
+            margin-top: 2px;
+        }
+        .flow-arrow {
+            display: flex;
+            align-items: center;
+            padding-top: 18px;
+            color: #444460;
+            font-size: 1.3rem;
+        }
+
+        /* step colors */
+        .step-voice   .flow-icon { background: #1a1a3a; color: #6ea8fe; }
+        .step-stt     .flow-icon { background: #1a2a1a; color: #6ee7a0; }
+        .step-screen  .flow-icon { background: #2a1a2a; color: #d8a0ff; }
+        .step-proxy   .flow-icon { background: #2a2a1a; color: #ffd866; }
+        .step-ai      .flow-icon { background: #1a2a2a; color: #66e0e0; }
+        .step-tts     .flow-icon { background: #2a1a1a; color: #ff9090; }
+        .step-point   .flow-icon { background: #1a1a3a; color: #80a0ff; }
+
+        /* ── Tech Stack Grid ── */
+        .stack-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .stack-card {
+            background: #111120;
+            border: 1px solid #1e1e36;
+            border-radius: 12px;
+            padding: 20px 22px;
+        }
+        .stack-card h3 {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            color: #c0c0d8;
+        }
+        .stack-card h3 .badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            background: #222240;
+            color: #8888c0;
+        }
+        .stack-card p {
+            font-size: 0.85rem;
+            color: #7878a0;
+            line-height: 1.55;
+        }
+        .stack-card code {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.78rem;
+            background: #1a1a30;
+            padding: 1px 5px;
+            border-radius: 3px;
+            color: #a0a0d0;
+        }
+
+        /* ── Architecture Diagram ── */
+        .arch-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            margin-top: 8px;
+        }
+        .arch-layer {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .arch-label {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transform: rotate(180deg);
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #444460;
+            padding-right: 12px;
+            display: flex;
+            align-items: center;
+        }
+        .arch-boxes {
+            display: flex;
+            flex: 1;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .arch-box {
+            flex: 1;
+            min-width: 140px;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1px solid #1e1e36;
+            font-size: 0.8rem;
+        }
+        .arch-box strong {
+            display: block;
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+        }
+        .arch-box span {
+            color: #6868a0;
+            font-size: 0.75rem;
+        }
+
+        .layer-ui     .arch-box { background: #151530; border-color: #2a2a50; }
+        .layer-ui     .arch-box strong { color: #8888ff; }
+        .layer-core   .arch-box { background: #1a2020; border-color: #2a3a3a; }
+        .layer-core   .arch-box strong { color: #66ccaa; }
+        .layer-net    .arch-box { background: #201a1a; border-color: #3a2a2a; }
+        .layer-net    .arch-box strong { color: #ff9966; }
+        .layer-ext    .arch-box { background: #1a1a20; border-color: #2a2a36; }
+        .layer-ext    .arch-box strong { color: #aaaacc; }
+
+        /* ── Sequence Diagram ── */
+        .sequence {
+            overflow-x: auto;
+            margin-top: 8px;
+        }
+        .seq-table {
+            width: 100%;
+            min-width: 700px;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .seq-table th {
+            padding: 12px 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #6868a0;
+            border-bottom: 1px solid #1e1e36;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            background: #0a0a0f;
+        }
+        .seq-table td {
+            padding: 10px;
+            font-size: 0.8rem;
+            border-bottom: 1px solid #111128;
+            vertical-align: top;
+        }
+        .seq-step-num {
+            text-align: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #6ea8fe;
+            width: 40px;
+        }
+        .seq-action {
+            color: #c0c0d8;
+            font-weight: 500;
+        }
+        .seq-detail {
+            color: #6868a0;
+        }
+        .seq-arrow {
+            text-align: center;
+            color: #444460;
+            font-size: 0.9rem;
+        }
+
+        /* ── File Map ── */
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 12px;
+        }
+        .file-card {
+            background: #0e0e1c;
+            border: 1px solid #1a1a2e;
+            border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .file-card .file-name {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.82rem;
+            color: #80a0ff;
+            margin-bottom: 4px;
+        }
+        .file-card .file-desc {
+            font-size: 0.78rem;
+            color: #5c5c80;
+        }
+        .file-group-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #444460;
+            margin: 24px 0 10px;
+        }
+        .file-group-label:first-child { margin-top: 0; }
+
+        /* ── Model Comparison ── */
+        .model-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 8px;
+        }
+        .model-table th {
+            padding: 12px 16px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #6868a0;
+            border-bottom: 1px solid #1e1e36;
+            text-align: left;
+        }
+        .model-table td {
+            padding: 12px 16px;
+            font-size: 0.85rem;
+            border-bottom: 1px solid #111128;
+            color: #9898b8;
+        }
+        .model-table tr:hover td { background: #0e0e1c; }
+        .model-name { font-weight: 600; color: #c0c0d8; }
+        .model-provider {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+        .provider-anthropic { background: #1a1a3a; color: #a78bfa; }
+        .provider-google    { background: #1a2a1a; color: #6ee7a0; }
+
+        /* ── Worker Routes ── */
+        .route-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        .route-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: #111120;
+            border: 1px solid #1e1e36;
+            border-radius: 10px;
+            padding: 14px 18px;
+        }
+        .route-method {
+            font-family: 'SF Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            background: #1a2a1a;
+            color: #6ee7a0;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+        .route-path {
+            font-family: 'SF Mono', monospace;
+            font-size: 0.88rem;
+            color: #c0c0d8;
+            font-weight: 500;
+        }
+        .route-desc {
+            font-size: 0.8rem;
+            color: #5c5c80;
+            margin-left: auto;
+        }
+        .route-upstream {
+            font-family: 'SF Mono', monospace;
+            font-size: 0.72rem;
+            color: #444460;
+        }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            padding: 40px 24px;
+            color: #333350;
+            font-size: 0.8rem;
+            border-top: 1px solid #1a1a2e;
+        }
+
+        /* ── Deep Dive Explainers ── */
+        .explainer {
+            background: #111120;
+            border: 1px solid #1e1e36;
+            border-radius: 14px;
+            padding: 28px 30px;
+            margin-bottom: 20px;
+        }
+        .explainer h3 {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #c0c0d8;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .explainer h3 .icon {
+            font-size: 1.3rem;
+        }
+        .explainer p {
+            font-size: 0.88rem;
+            color: #8888a8;
+            line-height: 1.7;
+            margin-bottom: 14px;
+        }
+        .explainer p:last-child { margin-bottom: 0; }
+        .explainer strong { color: #b0b0d0; }
+        .explainer code {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            background: #1a1a30;
+            padding: 1px 6px;
+            border-radius: 3px;
+            color: #a0a0d0;
+        }
+        .explainer-diagram {
+            background: #0a0a18;
+            border: 1px solid #1a1a30;
+            border-radius: 10px;
+            padding: 20px 24px;
+            margin: 16px 0;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.78rem;
+            line-height: 1.9;
+            color: #7878a0;
+            overflow-x: auto;
+            white-space: pre;
+        }
+        .explainer-diagram .highlight { color: #6ea8fe; }
+        .explainer-diagram .green { color: #6ee7a0; }
+        .explainer-diagram .yellow { color: #ffd866; }
+        .explainer-diagram .pink { color: #ff9090; }
+        .explainer-diagram .purple { color: #a78bfa; }
+        .explainer-diagram .dim { color: #444460; }
+        .explainer-label {
+            display: inline-block;
+            font-size: 0.68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+        }
+        .label-why { background: #1a2a1a; color: #6ee7a0; }
+        .label-how { background: #1a1a3a; color: #6ea8fe; }
+        .label-when { background: #2a1a2a; color: #d8a0ff; }
+        .label-example { background: #2a2a1a; color: #ffd866; }
+        .pointing-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin: 16px 0;
+        }
+        .pointing-card {
+            background: #0e0e1c;
+            border: 1px solid #1a1a2e;
+            border-radius: 10px;
+            padding: 16px 18px;
+        }
+        .pointing-card h4 {
+            font-size: 0.85rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .pointing-card p {
+            font-size: 0.8rem;
+            margin-bottom: 0;
+        }
+        .point-yes h4 { color: #6ea8fe; }
+        .point-no h4 { color: #ff9090; }
+
+        @media (max-width: 700px) {
+            .hero h1 { font-size: 2rem; }
+            .flow { gap: 8px; }
+            .flow-step { width: 100px; }
+            .flow-icon { width: 48px; height: 48px; font-size: 1.3rem; }
+            .flow-arrow { font-size: 1rem; }
+            .arch-label { display: none; }
+            .pointing-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ─────────────────── HERO ─────────────────── -->
+<div class="hero">
+    <h1>Clicky</h1>
+    <p>A macOS menu bar companion. Push-to-talk voice input, AI vision that sees your screen, spoken responses, and a cursor that points at what it's talking about.</p>
+</div>
+
+<!-- ─────────────────── USER FLOW ─────────────────── -->
+<section>
+    <h2>How It Works</h2>
+    <div class="flow">
+        <div class="flow-step step-voice">
+            <div class="flow-icon">🎙</div>
+            <span>Push-to-Talk</span>
+            <small>Ctrl + Option</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-stt">
+            <div class="flow-icon">💬</div>
+            <span>Transcribe</span>
+            <small>AssemblyAI</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-screen">
+            <div class="flow-icon">🖥</div>
+            <span>Screenshot</span>
+            <small>All monitors</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-proxy">
+            <div class="flow-icon">🔒</div>
+            <span>Worker Proxy</span>
+            <small>Cloudflare</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-ai">
+            <div class="flow-icon">🧠</div>
+            <span>AI Vision</span>
+            <small>Claude / Gemini</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-tts">
+            <div class="flow-icon">🔊</div>
+            <span>Speak</span>
+            <small>ElevenLabs / macOS</small>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step step-point">
+            <div class="flow-icon">📍</div>
+            <span>Point</span>
+            <small>Cursor flies to element</small>
+        </div>
+    </div>
+</section>
+
+<!-- ─────────────────── DEEP DIVES ─────────────────── -->
+<section>
+    <h2>Deep Dives — How Everything Actually Works</h2>
+
+    <!-- Worker Proxy -->
+    <div class="explainer">
+        <h3><span class="icon">🔒</span> What is the Worker Proxy and Why Does It Exist?</h3>
+
+        <span class="explainer-label label-why">The problem</span>
+        <p>Clicky needs API keys for Claude, Gemini, ElevenLabs, and AssemblyAI. If those keys were stored inside the app, anyone who downloads Clicky could extract them and run up your bill. Even if you obfuscate them, a determined person with a debugger could find them in minutes.</p>
+
+        <span class="explainer-label label-how">The solution</span>
+        <p>A <strong>Cloudflare Worker</strong> sits between the app and every external API. It's a tiny server (just ~185 lines of TypeScript) that runs on Cloudflare's edge network. The real API keys are stored as encrypted secrets on Cloudflare — the app never sees them. When the app wants to talk to Claude or Gemini, it sends the request to the Worker, which injects the correct API key and forwards the request upstream.</p>
+
+        <div class="explainer-diagram"><span class="dim">┌──────────┐</span>         <span class="dim">┌─────────────────┐</span>         <span class="dim">┌──────────────┐</span>
+<span class="dim">│</span> <span class="highlight">Clicky</span>   <span class="dim">│</span> <span class="yellow">──POST──▶</span> <span class="dim">│</span> <span class="yellow">Cloudflare Worker</span> <span class="dim">│</span> <span class="green">──POST──▶</span> <span class="dim">│</span> <span class="green">Claude / Gemini</span> <span class="dim">│</span>
+<span class="dim">│</span> <span class="highlight">(no keys)</span> <span class="dim">│</span>         <span class="dim">│</span> <span class="yellow">(has all keys)</span>   <span class="dim">│</span>         <span class="dim">│</span> <span class="green">(real API)</span>     <span class="dim">│</span>
+<span class="dim">└──────────┘</span>         <span class="dim">└─────────────────┘</span>         <span class="dim">└──────────────┘</span>
+                    <span class="dim">Injects API key into</span>
+                    <span class="dim">the request headers/URL,</span>
+                    <span class="dim">then pipes the response</span>
+                    <span class="dim">straight back to Clicky</span></div>
+
+        <p>The Worker has <strong>four routes</strong>, each proxying to a different service: <code>/chat</code> for Claude, <code>/gemini</code> for Gemini, <code>/tts</code> for ElevenLabs text-to-speech, and <code>/transcribe-token</code> for getting temporary AssemblyAI tokens. Each route injects the relevant API key in whatever format that service expects (header, query parameter, etc.) and streams the response back.</p>
+    </div>
+
+    <!-- AI Vision -->
+    <div class="explainer">
+        <h3><span class="icon">🧠</span> How AI Vision Works</h3>
+
+        <span class="explainer-label label-how">What happens when you speak</span>
+        <p>When you release the push-to-talk keys, two things happen simultaneously: your voice gets transcribed into text, and <strong>Clicky takes a screenshot of every connected monitor</strong>. These screenshots are JPEG images, each labeled with their pixel dimensions (e.g. "Screen 1 — Primary Focus (image dimensions: 2560x1600 pixels)").</p>
+
+        <p>The transcript and screenshots are bundled together and sent to the AI. The AI literally <strong>sees your screen</strong> the same way you'd see a photo — it can read text, identify buttons, recognize apps, see your code, spot UI elements. It then answers your question using both what you said and what it sees.</p>
+
+        <span class="explainer-label label-example">Example</span>
+        <p>You say <em>"how do I commit this?"</em> while looking at Xcode. The AI sees the Xcode window in the screenshot, spots the Source Control menu in the menu bar, and responds: <em>"see that source control menu up top? click that and hit commit, or you can use command option c as a shortcut."</em></p>
+
+        <span class="explainer-label label-how">How the AI "sees" images</span>
+        <p>Both Claude and Gemini are <strong>multimodal</strong> models — they accept both text and images as input. The screenshots are base64-encoded (converted to a long text string representing the image bytes) and embedded directly in the API request alongside the text. The AI processes text and images together in a single pass, which is why it can reference specific things on your screen.</p>
+
+        <div class="explainer-diagram"><span class="dim">What the AI receives:</span>
+
+<span class="purple">[Image: Screenshot of Screen 1, 2560x1600px]</span>
+<span class="purple">[Image: Screenshot of Screen 2, 1920x1080px]</span>  <span class="dim">(if multi-monitor)</span>
+<span class="highlight">[Text: "how do I commit this?"]</span>
+<span class="green">[System prompt: personality, rules, pointing instructions]</span>
+<span class="dim">[Conversation history: previous exchanges]</span>
+
+<span class="dim">What the AI returns:</span>
+
+<span class="yellow">"see that source control menu up top? click that</span>
+<span class="yellow"> and hit commit. [POINT:285,11:source control]"</span></div>
+
+        <span class="explainer-label label-how">Streaming (SSE)</span>
+        <p>The AI doesn't wait until the full response is ready — it <strong>streams text back word by word</strong> using Server-Sent Events (SSE). This is the same technology that makes ChatGPT's responses appear to type themselves. Clicky receives each text chunk as it's generated and accumulates the full response. This reduces perceived latency: the TTS engine can start speaking before the full response is complete.</p>
+    </div>
+
+    <!-- Cursor Pointing -->
+    <div class="explainer">
+        <h3><span class="icon">📍</span> How Cursor Pointing Works — When It Points vs. Just Speaks</h3>
+
+        <span class="explainer-label label-how">The mechanism</span>
+        <p>Clicky has a small blue triangle cursor that floats on a transparent overlay above all your windows. When the AI wants to <strong>point at something on your screen</strong>, it embeds a special tag at the end of its response:</p>
+
+        <div class="explainer-diagram"><span class="yellow">[POINT:x,y:label]</span>        <span class="dim">— point at coordinates (x,y) with a label</span>
+<span class="yellow">[POINT:1100,42:color inspector]</span>  <span class="dim">— point at pixel (1100,42), label it "color inspector"</span>
+<span class="yellow">[POINT:400,300:terminal:screen2]</span> <span class="dim">— point at (400,300) on the second monitor</span>
+<span class="yellow">[POINT:none]</span>                <span class="dim">— don't point at anything</span></div>
+
+        <p>The app strips this tag from the spoken text (so you don't hear "point colon 285 comma 11"), parses the coordinates, figures out which monitor they belong to, and <strong>animates the blue cursor along a bezier arc</strong> to that spot. The coordinate space matches the screenshot dimensions — so when the AI says (285, 11), it means 285 pixels from the left edge and 11 pixels from the top of the screenshot it was shown.</p>
+
+        <span class="explainer-label label-when">When does it point?</span>
+        <p>The AI decides on its own whether pointing would help. It's instructed with these guidelines in the system prompt:</p>
+
+        <div class="pointing-grid">
+            <div class="pointing-card point-yes">
+                <h4>Points at things when:</h4>
+                <p>You ask how to do something in an app ("how do I commit?"), you're looking for a menu or button ("where's the color inspector?"), you need help navigating ("how do I open terminal?"), or the answer involves a specific UI element on your screen that would be clearer to show than describe.</p>
+            </div>
+            <div class="pointing-card point-no">
+                <h4>Doesn't point when:</h4>
+                <p>You ask a general knowledge question ("what is HTML?"), the conversation has nothing to do with your screen ("tell me a joke"), you're asking about something conceptual ("explain recursion"), or the element would be so obvious that pointing adds nothing ("the thing you're already looking at").</p>
+            </div>
+        </div>
+
+        <span class="explainer-label label-example">Examples from the actual system prompt</span>
+        <div class="explainer-diagram"><span class="dim">User asks how to color grade in Final Cut:</span>
+<span class="highlight">"you'll want to open the color inspector — it's right up in</span>
+<span class="highlight"> the top right area of the toolbar."</span> <span class="yellow">[POINT:1100,42:color inspector]</span>
+
+<span class="dim">User asks what HTML is:</span>
+<span class="highlight">"html stands for hypertext markup language, it's basically</span>
+<span class="highlight"> the skeleton of every web page."</span> <span class="pink">[POINT:none]</span>
+
+<span class="dim">Element is on a different monitor:</span>
+<span class="highlight">"that's over on your other monitor — see the terminal</span>
+<span class="highlight"> window?"</span> <span class="yellow">[POINT:400,300:terminal:screen2]</span></div>
+
+        <span class="explainer-label label-how">Multi-monitor coordinate mapping</span>
+        <p>Each screenshot is labeled with its screen number and whether it's the "Primary Focus" (where the cursor is). The AI uses the <code>:screenN</code> suffix to specify which monitor the element is on. The app maps screenshot pixel coordinates to real display coordinates, accounting for the difference between <strong>Retina pixels</strong> (what the screenshot captures) and <strong>display points</strong> (where macOS positions windows). For example, on a 2x Retina display, screenshot coordinate (1000, 500) maps to display point (500, 250).</p>
+    </div>
+
+    <!-- Voice Pipeline -->
+    <div class="explainer">
+        <h3><span class="icon">🎙</span> The Voice Pipeline — From Sound Waves to Text</h3>
+
+        <span class="explainer-label label-how">Push-to-talk, not always-listening</span>
+        <p>Clicky only listens when you hold <strong>Ctrl+Option</strong>. This is a deliberate design choice — it never records in the background, never sends audio when you're not actively pressing the keys. The moment you release, recording stops and the audio is finalized.</p>
+
+        <p>The keyboard shortcut is detected by a <strong>CGEvent tap</strong> — a low-level macOS mechanism that listens for key events system-wide, even when Clicky isn't the focused app. This is more reliable than standard AppKit keyboard monitors for detecting modifier-only shortcuts.</p>
+
+        <span class="explainer-label label-how">Real-time streaming transcription</span>
+        <p>While you're speaking, the audio isn't just being recorded for later — it's being <strong>streamed live</strong> to AssemblyAI over a WebSocket connection. Your microphone audio is captured by <code>AVAudioEngine</code>, converted to PCM16 mono format (a simple, uncompressed audio format), and sent in real-time chunks. AssemblyAI processes these chunks as they arrive and returns partial transcripts, so by the time you release the keys, the final transcript is ready almost instantly — there's no "processing" delay.</p>
+
+        <div class="explainer-diagram"><span class="dim">Timeline:</span>
+
+<span class="highlight">Ctrl+Option pressed</span>  <span class="dim">──────────────────────────</span>  <span class="highlight">Ctrl+Option released</span>
+       <span class="dim">│</span>                                                <span class="dim">│</span>
+       <span class="dim">▼</span>                                                <span class="dim">▼</span>
+  <span class="green">Mic starts</span> <span class="dim">─▶</span> <span class="yellow">Audio chunks streamed to AssemblyAI</span> <span class="dim">─▶</span> <span class="pink">Final transcript</span>
+              <span class="dim">   (happening in real-time via WebSocket)    (ready in ~100ms)</span></div>
+    </div>
+
+    <!-- TTS -->
+    <div class="explainer">
+        <h3><span class="icon">🔊</span> Text-to-Speech — How Clicky Talks Back</h3>
+
+        <span class="explainer-label label-how">Two TTS engines</span>
+        <p>After the AI generates a response, the text (with the POINT tag stripped out) is sent to a text-to-speech engine to be spoken aloud. Clicky has two options:</p>
+
+        <p><strong>ElevenLabs</strong> (primary) — A cloud TTS service that produces natural, human-sounding speech. The text is sent to the Cloudflare Worker's <code>/tts</code> route, which forwards it to ElevenLabs with the API key. ElevenLabs returns an MP3 audio file, which the app plays through <code>AVAudioPlayer</code>. The voice is configurable — Clicky uses a specific voice ID stored in the Worker's config.</p>
+
+        <p><strong>macOS System TTS</strong> (fallback) — If ElevenLabs fails (invalid key, out of credits, proxy detection), Clicky falls back to <code>NSSpeechSynthesizer</code>, the built-in macOS speech engine. It's less natural-sounding but it's free, works offline, and requires no API key. This ensures Clicky always speaks, even when the cloud service is down.</p>
+    </div>
+
+    <!-- Conversation Memory -->
+    <div class="explainer">
+        <h3><span class="icon">💭</span> Conversation Memory</h3>
+
+        <span class="explainer-label label-how">How Clicky remembers what you said</span>
+        <p>Clicky keeps a <strong>rolling history of your last 10 exchanges</strong> (your transcript + the AI's response). Every time you push-to-talk, all previous exchanges are included in the API request, so the AI has context about what you've been talking about. This is why you can say "tell me more about that" or "what about the other file?" and it knows what "that" or "the other file" refers to.</p>
+
+        <p>The history is <strong>capped at 10 exchanges</strong> to prevent the request from getting too large (remember, each exchange includes screenshots). It resets when you quit and reopen the app — there's no persistent storage of conversations.</p>
+
+        <div class="explainer-diagram"><span class="dim">What gets sent on your 4th question:</span>
+
+<span class="purple">Exchange 1:</span>  <span class="dim">user:</span> <span class="highlight">"what app is this?"</span>    <span class="dim">ai:</span> <span class="green">"that's VS Code..."</span>
+<span class="purple">Exchange 2:</span>  <span class="dim">user:</span> <span class="highlight">"how do I open terminal?"</span> <span class="dim">ai:</span> <span class="green">"hit control backtick..."</span>
+<span class="purple">Exchange 3:</span>  <span class="dim">user:</span> <span class="highlight">"what does this error mean?"</span> <span class="dim">ai:</span> <span class="green">"that's a null pointer..."</span>
+<span class="yellow">Current:</span>    <span class="dim">user:</span> <span class="highlight">"how do I fix it?"</span>  <span class="dim">+ [screenshot of current screen]</span>
+
+<span class="dim">The AI knows "it" = the null pointer error from exchange 3</span></div>
+    </div>
+
+</section>
+
+<!-- ─────────────────── SEQUENCE ─────────────────── -->
+<section>
+    <h2>Request Lifecycle</h2>
+    <div class="sequence">
+        <table class="seq-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>User / App</th>
+                    <th></th>
+                    <th>Service</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="seq-step-num">1</td>
+                    <td class="seq-action">Hold Ctrl+Option</td>
+                    <td class="seq-arrow"></td>
+                    <td class="seq-detail">CGEvent tap detects modifier keys</td>
+                    <td class="seq-detail">GlobalPushToTalkShortcutMonitor publishes .pressed</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">2</td>
+                    <td class="seq-action">AVAudioEngine starts capture</td>
+                    <td class="seq-arrow">→</td>
+                    <td class="seq-detail">AssemblyAI WebSocket</td>
+                    <td class="seq-detail">PCM16 mono audio streamed in real time via wss://</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">3</td>
+                    <td class="seq-action">Release Ctrl+Option</td>
+                    <td class="seq-arrow"></td>
+                    <td class="seq-detail">Transcript finalized</td>
+                    <td class="seq-detail">AssemblyAI returns final text, audio engine stops</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">4</td>
+                    <td class="seq-action">ScreenCaptureKit captures all displays</td>
+                    <td class="seq-arrow"></td>
+                    <td class="seq-detail">Local</td>
+                    <td class="seq-detail">JPEG screenshots with dimension labels for coordinate mapping</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">5</td>
+                    <td class="seq-action">POST /chat or /gemini</td>
+                    <td class="seq-arrow">→</td>
+                    <td class="seq-detail">Cloudflare Worker</td>
+                    <td class="seq-detail">Worker injects API key, forwards to Claude or Gemini API</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">6</td>
+                    <td class="seq-action">SSE stream received</td>
+                    <td class="seq-arrow">←</td>
+                    <td class="seq-detail">Claude / Gemini</td>
+                    <td class="seq-detail">Text chunks streamed progressively, accumulated in app</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">7</td>
+                    <td class="seq-action">Parse [POINT:x,y:label] tag</td>
+                    <td class="seq-arrow"></td>
+                    <td class="seq-detail">Local regex</td>
+                    <td class="seq-detail">Extracts coordinates + element label from response tail</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">8</td>
+                    <td class="seq-action">POST /tts (or macOS fallback)</td>
+                    <td class="seq-arrow">→</td>
+                    <td class="seq-detail">ElevenLabs / NSSpeechSynthesizer</td>
+                    <td class="seq-detail">Spoken text (tag stripped) converted to audio, played back</td>
+                </tr>
+                <tr>
+                    <td class="seq-step-num">9</td>
+                    <td class="seq-action">Cursor animates to target</td>
+                    <td class="seq-arrow"></td>
+                    <td class="seq-detail">Overlay NSPanel</td>
+                    <td class="seq-detail">Bezier arc from current position → target coordinates on correct monitor</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ─────────────────── ARCHITECTURE LAYERS ─────────────────── -->
+<section>
+    <h2>Architecture Layers</h2>
+    <div class="arch-diagram">
+        <div class="arch-layer layer-ui">
+            <div class="arch-label">UI</div>
+            <div class="arch-boxes">
+                <div class="arch-box">
+                    <strong>MenuBarPanelManager</strong>
+                    <span>NSStatusItem + floating NSPanel for menu bar dropdown</span>
+                </div>
+                <div class="arch-box">
+                    <strong>CompanionPanelView</strong>
+                    <span>SwiftUI panel: model picker, permissions, status</span>
+                </div>
+                <div class="arch-box">
+                    <strong>OverlayWindow</strong>
+                    <span>Full-screen transparent NSPanel for cursor + text</span>
+                </div>
+                <div class="arch-box">
+                    <strong>CompanionResponseOverlay</strong>
+                    <span>SwiftUI text bubble + waveform next to cursor</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arch-layer layer-core">
+            <div class="arch-label">Core</div>
+            <div class="arch-boxes">
+                <div class="arch-box">
+                    <strong>CompanionManager</strong>
+                    <span>Central state machine — owns the full voice pipeline</span>
+                </div>
+                <div class="arch-box">
+                    <strong>BuddyDictationManager</strong>
+                    <span>Push-to-talk mic capture + provider routing</span>
+                </div>
+                <div class="arch-box">
+                    <strong>GlobalPushToTalkShortcutMonitor</strong>
+                    <span>System-wide CGEvent tap for Ctrl+Option</span>
+                </div>
+                <div class="arch-box">
+                    <strong>DesignSystem</strong>
+                    <span>DS.Colors, DS.CornerRadius — shared tokens</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arch-layer layer-net">
+            <div class="arch-label">Network</div>
+            <div class="arch-boxes">
+                <div class="arch-box">
+                    <strong>ClaudeAPI</strong>
+                    <span>Anthropic Messages API — SSE streaming + vision</span>
+                </div>
+                <div class="arch-box">
+                    <strong>GeminiAPI</strong>
+                    <span>Google Gemini API — SSE streaming + vision</span>
+                </div>
+                <div class="arch-box">
+                    <strong>ElevenLabsTTSClient</strong>
+                    <span>Text-to-speech via Worker proxy</span>
+                </div>
+                <div class="arch-box">
+                    <strong>AssemblyAI Provider</strong>
+                    <span>Real-time WebSocket transcription</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="arch-layer layer-ext">
+            <div class="arch-label">External</div>
+            <div class="arch-boxes">
+                <div class="arch-box">
+                    <strong>Cloudflare Worker</strong>
+                    <span>API proxy — holds all secrets, 4 routes</span>
+                </div>
+                <div class="arch-box">
+                    <strong>Anthropic API</strong>
+                    <span>Claude Sonnet / Opus vision + chat</span>
+                </div>
+                <div class="arch-box">
+                    <strong>Google Gemini API</strong>
+                    <span>Gemini 2.5 Flash vision + chat</span>
+                </div>
+                <div class="arch-box">
+                    <strong>ElevenLabs API</strong>
+                    <span>eleven_flash_v2_5 TTS</span>
+                </div>
+                <div class="arch-box">
+                    <strong>AssemblyAI API</strong>
+                    <span>u3-rt-pro streaming STT</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ─────────────────── WORKER ROUTES ─────────────────── -->
+<section>
+    <h2>Cloudflare Worker Routes</h2>
+    <div class="route-list">
+        <div class="route-item">
+            <span class="route-method">POST</span>
+            <span class="route-path">/chat</span>
+            <span class="route-upstream">→ api.anthropic.com/v1/messages</span>
+            <span class="route-desc">Claude vision + streaming chat</span>
+        </div>
+        <div class="route-item">
+            <span class="route-method">POST</span>
+            <span class="route-path">/gemini</span>
+            <span class="route-upstream">→ generativelanguage.googleapis.com/v1beta/models/*</span>
+            <span class="route-desc">Gemini vision + streaming chat</span>
+        </div>
+        <div class="route-item">
+            <span class="route-method">POST</span>
+            <span class="route-path">/tts</span>
+            <span class="route-upstream">→ api.elevenlabs.io/v1/text-to-speech/*</span>
+            <span class="route-desc">ElevenLabs text-to-speech</span>
+        </div>
+        <div class="route-item">
+            <span class="route-method">POST</span>
+            <span class="route-path">/transcribe-token</span>
+            <span class="route-upstream">→ streaming.assemblyai.com/v3/token</span>
+            <span class="route-desc">Short-lived AssemblyAI WebSocket token</span>
+        </div>
+    </div>
+</section>
+
+<!-- ─────────────────── MODEL COMPARISON ─────────────────── -->
+<section>
+    <h2>AI Models</h2>
+    <table class="model-table">
+        <thead>
+            <tr>
+                <th>Model</th>
+                <th>Provider</th>
+                <th>Vision</th>
+                <th>Streaming</th>
+                <th>Cost / Interaction</th>
+                <th>Best For</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="model-name">Claude Sonnet 4.6</td>
+                <td><span class="model-provider provider-anthropic">Anthropic</span></td>
+                <td>Excellent</td>
+                <td>SSE</td>
+                <td>~$0.05–0.15</td>
+                <td>Default — strong vision + reliable POINT tags</td>
+            </tr>
+            <tr>
+                <td class="model-name">Claude Opus 4.6</td>
+                <td><span class="model-provider provider-anthropic">Anthropic</span></td>
+                <td>Excellent</td>
+                <td>SSE</td>
+                <td>~$0.20–0.60</td>
+                <td>Complex reasoning, detailed explanations</td>
+            </tr>
+            <tr>
+                <td class="model-name">Gemini 2.5 Flash</td>
+                <td><span class="model-provider provider-google">Google</span></td>
+                <td>Very good</td>
+                <td>SSE</td>
+                <td>~$0.001–0.01</td>
+                <td>Budget-friendly, fast, generous free tier</td>
+            </tr>
+        </tbody>
+    </table>
+</section>
+
+<!-- ─────────────────── TECH STACK ─────────────────── -->
+<section>
+    <h2>Tech Stack</h2>
+    <div class="stack-grid">
+        <div class="stack-card">
+            <h3>SwiftUI + AppKit <span class="badge">Frontend</span></h3>
+            <p>SwiftUI for all views, bridged to AppKit <code>NSPanel</code> / <code>NSStatusItem</code> for the menu bar icon, floating panel, and full-screen cursor overlay. <code>@MainActor</code> isolation, async/await concurrency.</p>
+        </div>
+        <div class="stack-card">
+            <h3>ScreenCaptureKit <span class="badge">Screen Capture</span></h3>
+            <p>macOS 14.2+ API for multi-monitor screenshots. Returns labeled JPEG images with pixel dimensions so the AI's coordinate space matches the real display.</p>
+        </div>
+        <div class="stack-card">
+            <h3>AVAudioEngine <span class="badge">Audio</span></h3>
+            <p>Real-time microphone capture for push-to-talk. Converts buffers to PCM16 mono via <code>BuddyAudioConversionSupport</code> and streams to AssemblyAI or buffers for upload providers.</p>
+        </div>
+        <div class="stack-card">
+            <h3>CGEvent Tap <span class="badge">Input</span></h3>
+            <p>Listen-only system-wide event tap for the Ctrl+Option push-to-talk shortcut. More reliable than AppKit global monitors for modifier-only key combos while backgrounded.</p>
+        </div>
+        <div class="stack-card">
+            <h3>Cloudflare Workers <span class="badge">Proxy</span></h3>
+            <p>TypeScript edge worker holds all API secrets. Four routes proxy to Anthropic, Google, ElevenLabs, and AssemblyAI. Nothing sensitive ships in the app binary.</p>
+        </div>
+        <div class="stack-card">
+            <h3>AssemblyAI <span class="badge">Speech-to-Text</span></h3>
+            <p>Real-time streaming transcription via WebSocket (<code>u3-rt-pro</code> model). Short-lived tokens fetched from the Worker proxy. Shared <code>URLSession</code> prevents connection pool corruption.</p>
+        </div>
+        <div class="stack-card">
+            <h3>Claude + Gemini <span class="badge">AI Vision</span></h3>
+            <p>Vision models analyze screenshots + voice transcript. SSE streaming for progressive text. Claude uses <code>content_block_delta</code>, Gemini uses <code>candidates[].content.parts[]</code>.</p>
+        </div>
+        <div class="stack-card">
+            <h3>ElevenLabs / macOS TTS <span class="badge">Text-to-Speech</span></h3>
+            <p>Primary: ElevenLabs <code>eleven_flash_v2_5</code> via Worker proxy. Fallback: <code>NSSpeechSynthesizer</code> — free, offline, works when ElevenLabs is unavailable.</p>
+        </div>
+        <div class="stack-card">
+            <h3>Element Pointing <span class="badge">Cursor</span></h3>
+            <p>AI embeds <code>[POINT:x,y:label:screenN]</code> tags in responses. Parsed via regex, mapped to the correct monitor's coordinate space, animated along a bezier arc.</p>
+        </div>
+    </div>
+</section>
+
+<!-- ─────────────────── KEY FILES ─────────────────── -->
+<section>
+    <h2>Key Files</h2>
+
+    <div class="file-group-label">App Entry & State</div>
+    <div class="file-grid">
+        <div class="file-card">
+            <div class="file-name">leanring_buddyApp.swift</div>
+            <div class="file-desc">Menu bar app entry point. NSApplicationDelegateAdaptor creates MenuBarPanelManager and starts CompanionManager.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">CompanionManager.swift</div>
+            <div class="file-desc">Central state machine (~1050 lines). Owns the full push-to-talk → screenshot → AI → TTS → pointing pipeline.</div>
+        </div>
+    </div>
+
+    <div class="file-group-label">UI Layer</div>
+    <div class="file-grid">
+        <div class="file-card">
+            <div class="file-name">MenuBarPanelManager.swift</div>
+            <div class="file-desc">NSStatusItem + custom borderless NSPanel. Menu bar icon, show/hide panel, click-outside-to-dismiss.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">CompanionPanelView.swift</div>
+            <div class="file-desc">SwiftUI panel content. Model picker (Sonnet/Opus/Flash), permissions, push-to-talk instructions.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">OverlayWindow.swift</div>
+            <div class="file-desc">Full-screen transparent overlay. Blue cursor, response text, waveform, bezier pointing animations.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">DesignSystem.swift</div>
+            <div class="file-desc">DS.Colors, DS.CornerRadius — all UI references these shared tokens.</div>
+        </div>
+    </div>
+
+    <div class="file-group-label">Voice Pipeline</div>
+    <div class="file-grid">
+        <div class="file-card">
+            <div class="file-name">BuddyDictationManager.swift</div>
+            <div class="file-desc">Push-to-talk voice pipeline. AVAudioEngine capture, provider routing, transcript finalization.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">GlobalPushToTalkShortcutMonitor.swift</div>
+            <div class="file-desc">System-wide CGEvent tap for Ctrl+Option press/release detection.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">AssemblyAIStreamingTranscriptionProvider.swift</div>
+            <div class="file-desc">Real-time WebSocket transcription. Token fetching, PCM16 streaming, turn-based finalization.</div>
+        </div>
+    </div>
+
+    <div class="file-group-label">API Clients</div>
+    <div class="file-grid">
+        <div class="file-card">
+            <div class="file-name">ClaudeAPI.swift</div>
+            <div class="file-desc">Anthropic Messages API client. SSE streaming, vision, TLS warmup, conversation history.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">GeminiAPI.swift</div>
+            <div class="file-desc">Google Gemini API client. SSE streaming, vision, safety filter handling. Same interface as ClaudeAPI.</div>
+        </div>
+        <div class="file-card">
+            <div class="file-name">ElevenLabsTTSClient.swift</div>
+            <div class="file-desc">Text-to-speech via Worker proxy. AVAudioPlayer playback, isPlaying state.</div>
+        </div>
+    </div>
+
+    <div class="file-group-label">Worker</div>
+    <div class="file-grid">
+        <div class="file-card">
+            <div class="file-name">worker/src/index.ts</div>
+            <div class="file-desc">Cloudflare Worker proxy. 4 routes: /chat (Claude), /gemini (Gemini), /tts (ElevenLabs), /transcribe-token (AssemblyAI).</div>
+        </div>
+    </div>
+</section>
+
+<!-- ─────────────────── FOOTER ─────────────────── -->
+<footer>
+    Clicky Architecture Diagram — Generated for local reference
+</footer>
+
+</body>
+</html>
