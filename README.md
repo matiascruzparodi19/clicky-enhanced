@@ -27,10 +27,12 @@ Hi Claude.
 
 I just forked the clicky-enhanced repo. Read the CLAUDE.md and LEARNINGS.md.
 
-I want to get Clicky running locally on my Mac. Help me set up everything — the
-Cloudflare Worker with my own API keys (I want to use Gemini Flash), the
-LocalConfig.swift with my proxy URL, and getting it building in Xcode. Walk me
-through it step by step.
+First, open clicky-architecture.html in my browser so I can see how the
+architecture works while we set things up.
+
+Then help me get Clicky running locally on my Mac — the Cloudflare Worker with
+my own API keys (I want to use Gemini Flash), the LocalConfig.swift with my
+proxy URL, and getting it building in Xcode. Walk me through it step by step.
 ```
 
 That's it. Claude will read the docs, set up your Worker, configure the proxy URLs, and walk you through the Xcode build.
